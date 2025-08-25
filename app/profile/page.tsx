@@ -51,27 +51,44 @@ export default function ProfilePage() {
   }, [tg?.id]);
 
   async function lookup(h: string) {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await fetch(`/api/twitter/user?username=${encodeURIComponent(h)}`);
-      const json = (await res.json()) as TwitterUser | { error: string };
-      if (!res.ok) throw new Error((json as any)?.error || "API error");
+  setLoading(true);
+  setErr(null);
+  try {
+    // always hit the same origin as the page (PUBLIC_URL)
+    const base = typeof window !== "undefined" ? window.location.origin : "";
+    const res = await fetch(
+      `${base}/api/twitter/user?username=${encodeURIComponent(h)}`,
+      { headers: { Accept: "application/json" }, cache: "no-store" }
+    );
 
-      const clean = json as TwitterUser;
-      // Keep only the fields we care about (already limited by API route)
-      setData(clean);
-      // Normalize saved handle from API (could have different case)
-      const savedHandle = (clean.userName ?? h) || h;
-      setHandle(savedHandle);
-      localStorage.setItem(LS_KEY(tg?.id), JSON.stringify({ handle: savedHandle, data: clean }));
-      setEditing(false);
-    } catch (e: any) {
-      setErr(e?.message || "Something went wrong");
-    } finally {
-      setLoading(false);
+    const ct = res.headers.get("content-type") || "";
+    const text = await res.text();
+
+    if (!ct.includes("application/json")) {
+      // If the server returned HTML (404 page, proxy error, etc.), show a helpful error
+      throw new Error(
+        `Expected JSON but got ${ct || "unknown"} (status ${res.status}). Snippet: ${text.slice(0, 120)}`
+      );
     }
+
+    const json = JSON.parse(text);
+    if (!res.ok) {
+      throw new Error(json?.error || `API error (status ${res.status})`);
+    }
+
+    // success
+    setData(json);
+    const savedHandle = (json.userName ?? h) || h;
+    setHandle(savedHandle);
+    localStorage.setItem(LS_KEY(tg?.id), JSON.stringify({ handle: savedHandle, data: json }));
+    setEditing(false);
+  } catch (e: any) {
+    setErr(e?.message || "Something went wrong");
+  } finally {
+    setLoading(false);
   }
+}
+
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
